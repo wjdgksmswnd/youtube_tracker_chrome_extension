@@ -1,0 +1,43 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Music Tracker (ODO)",
+    "description": "YouTube Music에서 청취 시간과 통계를 추적하는 확장 프로그램",
+    "version": "2.0.0",
+    "permissions": [
+      "storage",
+      "tabs",
+      "activeTab",
+      "scripting"
+    ],
+    "host_permissions": [
+      "https://music.youtube.com/*",
+      "https://odo.ist/*",
+      "http://localhost:8080/*"
+    ],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "content_scripts": [
+      {
+        "matches": ["https://music.youtube.com/*"],
+        "js": ["config.js", "content.js"],
+        "run_at": "document_start"
+      }
+    ],
+    "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+      }
+    },
+    "icons": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://odo.ist/ http://localhost:8080/"
+    }
+  }

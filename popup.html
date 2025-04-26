@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>O.D.O beta</title>
+  <style>
+    body {
+      width: 350px;
+      font-family: 'Roboto', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: #202124;
+    }
+    .container {
+      padding: 15px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 15px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      color: #4285f4;
+    }
+    .now-playing {
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .now-playing.active {
+      border-left: 3px solid #4285f4;
+    }
+    .track-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .track-artist {
+      color: #5f6368;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .track-status {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #5f6368;
+    }
+    .stats-card {
+      display: flex;
+      margin-bottom: 15px;
+      gap: 10px;
+    }
+    .stat-item {
+      flex: 1;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .stat-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #4285f4;
+      margin-bottom: 3px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #5f6368;
+    }
+    .progress-container {
+      margin-bottom: 15px;
+    }
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+    .progress-bar {
+      height: 6px;
+      background-color: #e0e0e0;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background-color: #4285f4;
+      border-radius: 3px;
+    }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 20px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #4285f4;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(16px);
+    }
+    .btn {
+      border: none;
+      background-color: #f1f3f4;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #202124;
+    }
+    .btn:hover {
+      background-color: #e8eaed;
+    }
+    .btn-primary {
+      background-color: #4285f4;
+      color: white;
+    }
+    .login-container {
+      padding: 15px;
+      text-align: center;
+    }
+    .login-form {
+      margin-top: 20px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+      text-align: left;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .alert {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      display: none;
+    }
+    .dev-mode {
+      font-size: 12px;
+      color: #5f6368;
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>O.D.O</h1>
+      <div>
+        <label class="toggle-switch" title="다크 모드" id="dark-mode-container" style="display: none;">
+          <input type="checkbox" id="dark-mode-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    
+    <!-- 로그인 화면 -->
+    <div id="login-panel">
+      <div class="login-container">
+        <p>음악 청취 기록을 추적하려면 로그인하세요.</p>
+        <div class="alert" id="login-alert"></div>
+        <form class="login-form" id="login-form">
+          <div class="form-group">
+            <label for="userId">아이디</label>
+            <input type="text" id="userId" required>
+          </div>
+          <div class="form-group">
+            <label for="password">비밀번호</label>
+            <input type="password" id="password" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">로그인</button>
+        </form>
+        <div class="dev-mode">
+          <input type="checkbox" id="dev-mode-toggle">
+          <label for="dev-mode-toggle">개발 모드</label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 메인 콘텐츠 화면 -->
+    <div id="content-panel" style="display: none;">
+      <div class="now-playing" id="now-playing">
+        <div class="track-title">음악을 재생하지 않음</div>
+        <div class="track-artist">YouTube Music에서 음악을 재생해보세요</div>
+        <div class="track-status">
+          <span id="playback-status">대기 중</span>
+          <span id="playback-time"></span>
+        </div>
+      </div>
+      
+      <div class="stats-card">
+        <div class="stat-item">
+          <div class="stat-value" id="today-tracks">0</div>
+          <div class="stat-label">오늘 트랙 수</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="today-minutes">0</div>
+          <div class="stat-label">오늘 재생 시간(분)</div>
+        </div>
+      </div>
+      
+      <div class="progress-container">
+        <div class="progress-header">
+          <span>월간 목표</span>
+          <span id="monthly-goal-text">0/0분</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="monthly-goal-progress" style="width: 0%;"></div>
+        </div>
+      </div>
+      
+      <div class="footer">
+        <button id="dashboard-btn" class="btn">대시보드 열기</button>
+        <button id="logout-btn" class="btn">로그아웃</button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
