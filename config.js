@@ -1,7 +1,7 @@
 // config.js - 환경 설정 파일
 const CONFIG = {
     // 개발 모드 설정 (true: 개발, false: 프로덕션)
-    DEV_MODE: false,
+    DEV_MODE: true,
     
     // API 서버 URL
     get SERVER_URL() {
