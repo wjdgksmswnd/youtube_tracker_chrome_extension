@@ -59,16 +59,7 @@ function initialize() {
   log('ODO 트래커 초기화 시작...');
   
   // 클라이언트 ID 초기화
-  chrome.storage.local.get(['clientId', 'debugMode', 'token', 'sessionId'], function(result) {
-    if (result.clientId) {
-      clientId = result.clientId;
-      log('클라이언트 ID 로드:', clientId);
-    } else {
-      clientId = 'odo-' + generateUUID();
-      chrome.storage.local.set({ clientId });
-      log('새 클라이언트 ID 생성:', clientId);
-    }
-    
+  chrome.storage.local.get(['debugMode', 'token'], function(result) {
     // 디버그 모드 설정
     debugMode = result.debugMode !== false;
     log('디버그 모드:', debugMode);
@@ -145,7 +136,7 @@ async function createNewSession(token) {
       language: navigator.language
     };
     
-    const response = await fetch(`${SERVER_URL}/api/session`, {
+    const response = await fetch(`${SERVER_URL}/api/extention/session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

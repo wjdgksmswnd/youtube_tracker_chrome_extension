@@ -1,8 +1,8 @@
 // popup.js - 팝업 UI 스크립트
 document.addEventListener('DOMContentLoaded', function() {
     // DOM 요소
-    const darkModeToggle = document.getElementById('dark-mode-toggle');
-    const darkModeContainer = document.getElementById('dark-mode-container');
+    // const darkModeToggle = document.getElementById('dark-mode-toggle');
+    // const darkModeContainer = document.getElementById('dark-mode-container');
     const devModeToggle = document.getElementById('dev-mode-toggle');
     const dashboardBtn = document.getElementById('dashboard-btn');
     const logoutBtn = document.getElementById('logout-btn');
@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initializePopup();
     
     // 이벤트 리스너
-    darkModeToggle && darkModeToggle.addEventListener('change', toggleDarkMode);
+    // darkModeToggle && darkModeToggle.addEventListener('change', toggleDarkMode);
     devModeToggle && devModeToggle.addEventListener('change', toggleDevMode);
     dashboardBtn.addEventListener('click', openDashboard);
     logoutBtn.addEventListener('click', handleLogout);
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', function() {
       });
       
       // 다크 모드 설정 로드
-      loadDarkModeSetting();
+      // loadDarkModeSetting();
       
       // 로그인 상태 확인
       checkLoginStatus();
@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.token) {
           loginPanel.style.display = 'none';
           contentPanel.style.display = 'block';
-          darkModeContainer.style.display = 'inline-block';
+          // darkModeContainer.style.display = 'inline-block';
           
           // 현재 트랙 정보 가져오기
           getCurrentTabInfo();
@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
           loginPanel.style.display = 'block';
           contentPanel.style.display = 'none';
-          darkModeContainer.style.display = 'none';
+          // darkModeContainer.style.display = 'none';
           
           // 타이머 정리
           if (updateTimer) {
@@ -205,21 +205,21 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('today-minutes').textContent = data.todayStats?.minutes || 0;
     }
     
-    // 다크 모드 설정 로드
-    function loadDarkModeSetting() {
-      chrome.storage.local.get(['darkMode'], function(data) {
-        const isDarkMode = !!data.darkMode;
-        if (isDarkMode) document.body.classList.add('dark-mode');
-        if (darkModeToggle) darkModeToggle.checked = isDarkMode;
-      });
-    }
+    // // 다크 모드 설정 로드
+    // function loadDarkModeSetting() {
+    //   chrome.storage.local.get(['darkMode'], function(data) {
+    //     const isDarkMode = !!data.darkMode;
+    //     if (isDarkMode) document.body.classList.add('dark-mode');
+    //     // if (darkModeToggle) darkModeToggle.checked = isDarkMode;
+    //   });
+    // }
     
-    // 다크 모드 토글
-    function toggleDarkMode() {
-      const enabled = darkModeToggle.checked;
-      chrome.storage.local.set({ darkMode: enabled });
-      document.body.classList.toggle('dark-mode', enabled);
-    }
+    // // 다크 모드 토글
+    // function toggleDarkMode() {
+    //   // const enabled = darkModeToggle.checked;
+    //   chrome.storage.local.set({ darkMode: enabled });
+    //   document.body.classList.toggle('dark-mode', enabled);
+    // }
     
     // 개발 모드 토글
     function toggleDevMode() {
@@ -293,7 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
           // UI 업데이트
           loginPanel.style.display = 'none';
           contentPanel.style.display = 'block';
-          darkModeContainer.style.display = 'inline-block';
+          // darkModeContainer.style.display = 'inline-block';
           
           // 현재 트랙 정보 가져오기
           getCurrentTabInfo();
@@ -386,7 +386,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // UI 업데이트
         loginPanel.style.display = 'block';
         contentPanel.style.display = 'none';
-        darkModeContainer.style.display = 'none';
+        // darkModeContainer.style.display = 'none';
         
         // 타이머 정리
         if (updateTimer) {
