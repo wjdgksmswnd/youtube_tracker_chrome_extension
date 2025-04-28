@@ -7,7 +7,7 @@ let pausedTrackInfo = null;
 let totalPlaybackTime = 0;
 let lastProcessedTrack = null;
 let processingTrack = false;
-let clientId = null;
+let userToken = null;
 let sessionId = null;
 let debugMode = true;
 let lastStateChangeTime = Date.now();
@@ -18,6 +18,9 @@ let currentTrackPosition = 0;
 let lastUpdateSentTime = 0;
 let trackHistory = [];
 let serverTrackCheckPending = false;
+let groupInfo = null;
+let dailyGoal = 60; // 기본값
+let monthlyGoal = 1200; // 기본값
 
 // 서버 URL 가져오기 (config.js에서 설정)
 const SERVER_URL = CONFIG.SERVER_URL;
@@ -66,18 +69,16 @@ function initialize() {
     
     // 인증 토큰 확인
     if (result.token) {
+      userToken = result.token;
       log('인증 토큰 확인됨');
       
-      // 세션 ID 확인
-      if (result.sessionId) {
-        sessionId = result.sessionId;
-        log('세션 ID 로드:', sessionId);
-      } else {
-        // 세션 ID가 없으면 새로 생성 요청
-        createNewSession(result.token);
-      }
+      // 세션 ID가 없으면 새로 생성 요청
+      createNewSession(userToken);
     } else {
       log('인증 토큰 없음. 로그인 필요');
+      // 로그인 페이지로 리다이렉트
+      window.location.href = `${CONFIG.SERVER_URL}/index.html`;
+      return;
     }
     
     // 기록 로드
@@ -136,7 +137,7 @@ async function createNewSession(token) {
       language: navigator.language
     };
     
-    const response = await fetch(`${SERVER_URL}/api/extention/session`, {
+    const response = await fetch(`${SERVER_URL}/api/session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -149,10 +150,28 @@ async function createNewSession(token) {
     
     if (response.ok) {
       sessionId = data.sessionId;
-      chrome.storage.local.set({ sessionId });
       log('새 세션 생성 성공:', sessionId);
+      
+      // 그룹 정보 저장 (전역 변수로 관리)
+      if (data.group) {
+        groupInfo = data.group;
+        dailyGoal = data.group.daily_goal_minutes || 60;
+        monthlyGoal = data.group.monthly_goal_minutes || 1200;
+        log('그룹 정보 로드:', groupInfo);
+      }
     } else {
       log('세션 생성 실패:', data.error);
+      
+      // 세션 만료 처리
+      if (data.error === 'session_expired') {
+        // 사용자에게 알림
+        showNotification(
+          '세션 만료', 
+          data.message || '세션이 만료되었습니다. 다시 로그인하세요.', 
+          '로그인',
+          handleLogin
+        );
+      }
     }
   } catch (err) {
     console.error('[ODO] 세션 생성 오류:', err);
@@ -990,7 +1009,7 @@ function finishCurrentTrack(eventType = 'finish') {
       // 종료 이벤트 전송
       sendTrackEvent(eventType, record);
       
-      // 서버로 청취 기록 전송
+      // 서버로 청취 기록 직접 전송
       sendListeningData(record);
       
       // 기록에 추가
@@ -1038,21 +1057,19 @@ function checkDuplicate(record) {
   return false;
 }
 
-// 인증 정보 가져오기
+// 인증 정보 가져오기 (전역 변수 사용)
 function getAuthInfo(callback) {
-  chrome.storage.local.get(['token', 'sessionId'], function(result) {
-    if (result.token) {
-      const authInfo = {
-        token: result.token,
-        sessionId: result.sessionId
-      };
-      
-      callback(authInfo);
-    } else {
-      log('인증 정보 없음');
-      callback(null);
-    }
-  });
+  if (userToken) {
+    const authInfo = {
+      token: userToken,
+      sessionId: sessionId
+    };
+    
+    callback(authInfo);
+  } else {
+    log('인증 정보 없음');
+    callback(null);
+  }
 }
 
 // 트랙 이벤트 전송
@@ -1063,96 +1080,94 @@ async function sendTrackEvent(eventType, trackData) {
   }
   
   try {
-    getAuthInfo(async function(authInfo) {
-      if (!authInfo) {
-        log('인증 정보 없음, 이벤트 전송 생략');
-        return;
-      }
-      
-      // 비디오 요소에서 현재 재생 위치 가져오기
-      const video = document.querySelector('video');
-      const position = video ? Math.floor(video.currentTime) : currentTrackPosition;
-      
-      // 현재 시간 기준 재생 시간 계산
-      let duration = 0;
-      if (playbackStartTime && eventType !== 'start') {
-        duration = Math.floor((Date.now() - playbackStartTime) / 1000);
-      } else if (trackData.duration) {
-        duration = trackData.duration;
-      } else if (video) {
-        duration = Math.floor(video.duration);
-      }
-      
-      // 보낼 데이터 준비
-      const eventData = {
-        youtube_track_id: trackData.youtube_track_id,
-        youtube_playlist_id: trackData.youtube_playlist_id,
-        title: trackData.title,
-        artist: trackData.artist,
-        event_type: eventType,
-        track_position_seconds: position,
-        duration_seconds: duration,
-        player_timestamp: new Date().toISOString(),
-        history_id: trackData.history_id,
-        url: trackData.url || window.location.href
-      };
-      
-      // Beacon API로 전송 (페이지 닫힘 이벤트인 경우)
-      if (eventType === 'close') {
-        const blob = new Blob([JSON.stringify(eventData)], { type: 'application/json' });
-        navigator.sendBeacon(
-          `${SERVER_URL}/api/listening/event`, 
-          blob
-        );
-        log('Beacon API로 종료 이벤트 전송');
-        return;
-      }
-      
-      // 일반 요청으로 전송
-      const response = await fetch(`${SERVER_URL}/api/listening/event`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authInfo.token}`,
-          ...(authInfo.sessionId && { 'X-Session-ID': authInfo.sessionId })
-        },
-        body: JSON.stringify(eventData)
-      });
-      
-      // 응답 처리
-      if (response.ok) {
-        log(`${eventType} 이벤트 전송 성공`);
-      } else if (response.status === 401) {
-        const errorData = await response.json();
-        
-        // 세션 만료 처리
-        if (errorData.error === 'session_expired') {
-          log('세션 만료:', errorData.message);
-          
-          // 세션 ID 제거
-          chrome.storage.local.remove(['sessionId']);
-          sessionId = null;
-          
-          // 사용자에게 알림
-          showNotification(
-            '세션 만료', 
-            errorData.message, 
-            errorData.ip_conflict ? '다른 창 닫기' : '로그인',
-            errorData.ip_conflict ? handleCloseTab : handleLogin
-          );
-          
-          // 종료 이벤트 전송 (세션 만료)
-          if (currentTrack) {
-            sendTrackEvent('session_expired', currentTrack);
-          }
-          
-          // 상태 리셋
-          resetAllState();
-        }
-      } else {
-        log(`이벤트 전송 실패: ${response.status}`);
-      }
+    // 인증 정보 확인
+    if (!userToken) {
+      log('인증 정보 없음, 이벤트 전송 생략');
+      return;
+    }
+    
+    // 비디오 요소에서 현재 재생 위치 가져오기
+    const video = document.querySelector('video');
+    const position = video ? Math.floor(video.currentTime) : currentTrackPosition;
+    
+    // 현재 시간 기준 재생 시간 계산
+    let duration = 0;
+    if (playbackStartTime && eventType !== 'start') {
+      duration = Math.floor((Date.now() - playbackStartTime) / 1000);
+    } else if (trackData.duration) {
+      duration = trackData.duration;
+    } else if (video) {
+      duration = Math.floor(video.duration);
+    }
+    
+    // 보낼 데이터 준비
+    const eventData = {
+      youtube_track_id: trackData.youtube_track_id,
+      youtube_playlist_id: trackData.youtube_playlist_id,
+      title: trackData.title,
+      artist: trackData.artist,
+      event_type: eventType,
+      track_position_seconds: position,
+      duration_seconds: duration,
+      player_timestamp: new Date().toISOString(),
+      history_id: trackData.history_id,
+      url: trackData.url || window.location.href
+    };
+    
+    // Beacon API로 전송 (페이지 닫힘 이벤트인 경우)
+    if (eventType === 'close') {
+      const blob = new Blob([JSON.stringify(eventData)], { type: 'application/json' });
+      navigator.sendBeacon(
+        `${SERVER_URL}/api/listening/event`, 
+        blob
+      );
+      log('Beacon API로 종료 이벤트 전송');
+      return;
+    }
+    
+    // 일반 요청으로 전송
+    const response = await fetch(`${SERVER_URL}/api/listening/event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userToken}`,
+        ...(sessionId && { 'X-Session-ID': sessionId })
+      },
+      body: JSON.stringify(eventData)
     });
+    
+    // 응답 처리
+    if (response.ok) {
+      log(`${eventType} 이벤트 전송 성공`);
+    } else if (response.status === 401) {
+      const errorData = await response.json();
+      
+      // 세션 만료 처리
+      if (errorData.error === 'session_expired') {
+        log('세션 만료:', errorData.message);
+        
+        // 세션 ID 제거
+        sessionId = null;
+        
+        // 사용자에게 알림
+        showNotification(
+          '세션 만료', 
+          errorData.message, 
+          errorData.ip_conflict ? '다른 창 닫기' : '로그인',
+          errorData.ip_conflict ? handleCloseTab : handleLogin
+        );
+        
+        // 종료 이벤트 전송 (세션 만료)
+        if (currentTrack) {
+          sendTrackEvent('session_expired', currentTrack);
+        }
+        
+        // 상태 리셋
+        resetAllState();
+      }
+    } else {
+      log(`이벤트 전송 실패: ${response.status}`);
+    }
   } catch (err) {
     console.error('[ODO] 이벤트 전송 오류:', err);
   }
@@ -1169,111 +1184,130 @@ async function sendListeningData(trackData) {
   log('서버로 청취 기록 전송 시도:', trackData);
   
   try {
-    getAuthInfo(async function(authInfo) {
-      if (!authInfo) {
-        log('인증 정보 없음, 보류 중인 트랙으로 저장');
-        storePendingTrack(trackData);
-        return;
-      }
-      
-      // record_id 생성 (고유성 보장)
-      const record_id = `${clientId}-${trackData.youtube_track_id}-${Date.now()}`;
-      
-      // 서버로 전송
-      const response = await fetch(`${SERVER_URL}/api/listening`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authInfo.token}`,
-          ...(authInfo.sessionId && { 'X-Session-ID': authInfo.sessionId })
-        },
-        body: JSON.stringify({
-          youtube_id: trackData.youtube_track_id,
-          title: trackData.title,
-          artist: trackData.artist,
-          duration_seconds: trackData.duration || 0,
-          play_start_time: trackData.startTime,
-          play_end_time: trackData.endTime,
-          actual_duration_seconds: trackData.actualDuration,
-          is_complete: trackData.isComplete !== false,
-          youtube_playlist_id: trackData.youtube_playlist_id,
-          client_id: record_id
-        })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        log('청취 기록 전송 성공:', data);
-        
-        // 새 history_id 저장
-        if (data.history_id) {
-          trackData.history_id = data.history_id;
-        }
-      } else if (response.status === 401) {
-        const errorData = await response.json();
-        
-        // 세션 만료 처리
-        if (errorData.error === 'session_expired') {
-          log('세션 만료:', errorData.message);
-          
-          // 세션 ID 제거
-          chrome.storage.local.remove(['sessionId']);
-          sessionId = null;
-          
-          // 보류 중인 트랙으로 저장
-          storePendingTrack(trackData);
-          
-          // 사용자에게 알림
-          showNotification(
-            '세션 만료', 
-            errorData.message, 
-            errorData.ip_conflict ? '다른 창 닫기' : '로그인',
-            errorData.ip_conflict ? handleCloseTab : handleLogin
-          );
-        }
-      } else {
-        log('청취 기록 전송 실패, 보류 중인 트랙으로 저장');
-        storePendingTrack(trackData);
-      }
+    // 인증 정보 확인
+    if (!userToken) {
+      log('인증 정보 없음, 전송 실패');
+      return;
+    }
+    
+    // record_id 생성 (고유성 보장)
+    const record_id = `${clientId}-${trackData.youtube_track_id}-${Date.now()}`;
+    
+    // 서버로 전송
+    const response = await fetch(`${SERVER_URL}/api/listening`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userToken}`,
+        ...(sessionId && { 'X-Session-ID': sessionId })
+      },
+      body: JSON.stringify({
+        // listening_history 테이블 구조에 맞게 필드 이름 조정
+        track_id: trackData.youtube_track_id,
+        youtube_playlist_id: trackData.youtube_playlist_id,
+        duration_seconds: trackData.duration || 0,
+        actual_duration_seconds: trackData.actualDuration,
+        play_start_time: trackData.startTime,
+        play_end_time: trackData.endTime,
+        is_complete: trackData.isComplete !== false,
+        client_id: record_id,
+        // 추가 정보 (서버에서 필요할 수 있는 메타데이터)
+        title: trackData.title,
+        artist: trackData.artist
+      })
     });
+    
+    if (response.ok) {
+      const data = await response.json();
+      log('청취 기록 전송 성공:', data);
+      
+      // 새 history_id 저장
+      if (data.history_id) {
+        trackData.history_id = data.history_id;
+      }
+    } else if (response.status === 401) {
+      const errorData = await response.json();
+      
+      // 세션 만료 처리
+      if (errorData.error === 'session_expired') {
+        log('세션 만료:', errorData.message);
+        
+        // 세션 ID 초기화
+        sessionId = null;
+        
+        // 사용자에게 알림
+        showNotification(
+          '세션 만료', 
+          errorData.message, 
+          errorData.ip_conflict ? '다른 창 닫기' : '로그인',
+          errorData.ip_conflict ? handleCloseTab : handleLogin
+        );
+      }
+    } else {
+      log('청취 기록 전송 실패');
+    }
   } catch (err) {
     console.error('[ODO] 서버 통신 오류:', err);
-    storePendingTrack(trackData);
   }
 }
 
-// 보류 중인 트랙 저장
-function storePendingTrack(trackData) {
-  const record = {
-    ...trackData,
-    record_id: `${clientId}-${trackData.youtube_track_id}-${Date.now()}`
-  };
+// 플레이리스트 확인 함수
+async function checkPlaylistId(playlistId, authInfo) {
+  if (!playlistId) {
+    return false;
+  }
   
-  chrome.storage.local.get(['pending'], function(result) {
-    const pendingTracks = result.pending || [];
+  try {
+    const playlistCheckUrl = `${SERVER_URL}/api/playlist/${playlistId}/verify`;
+    const response = await fetch(playlistCheckUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authInfo.token}`,
+        ...(authInfo.sessionId && { 'X-Session-ID': authInfo.sessionId })
+      }
+    });
     
-    // 중복 확인 (정확히 같은 시작 시간의 같은 트랙인 경우만)
-    const isDuplicate = pendingTracks.some(track => 
-      track.youtube_track_id === record.youtube_track_id && 
-      track.startTime === record.startTime
-    );
-    
-    if (!isDuplicate) {
-      pendingTracks.push(record);
-      chrome.storage.local.set({ pending: pendingTracks });
-      log('보류 중인 트랙으로 저장됨');
-      
-      // 백그라운드에 동기화 요청
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ action: 'syncPendingTracks' });
-      }, 5000);
-    } else {
-      log('이미 보류 중인 트랙에 존재 (동일 트랙)');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.isApproved) {
+        log('플레이리스트가 승인되었습니다');
+        return true;
+      }
     }
-  });
+    return false;
+  } catch (err) {
+    console.error('[ODO] 플레이리스트 확인 오류:', err);
+    return false;
+  }
 }
 
-// 현재 트랙이 승인된 플레이리스트에 있는지 확인
+// 트랙 확인 함수
+async function checkTrackId(trackId, authInfo) {
+  if (!trackId) {
+    return false;
+  }
+  
+  try {
+    const response = await fetch(`${SERVER_URL}/api/track/verify/${trackId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authInfo.token}`,
+        ...(authInfo.sessionId && { 'X-Session-ID': authInfo.sessionId })
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.inPlaylist;
+    }
+    return false;
+  } catch (err) {
+    console.error('[ODO] 트랙 확인 오류:', err);
+    return false;
+  }
+}
+
+// 메인 확인 함수 (플레이리스트, 트랙 순으로 확인)
 async function checkTrackInPlaylists(youtube_track_id) {
   if (serverTrackCheckPending) {
     return;
@@ -1283,7 +1317,9 @@ async function checkTrackInPlaylists(youtube_track_id) {
   
   try {
     const trackId = youtube_track_id || (currentTrack ? currentTrack.youtube_track_id : null);
-    if (!trackId) {
+    const playlistId = currentTrack ? currentTrack.youtube_playlist_id : null;
+    
+    if (!trackId && !playlistId) {
       serverTrackCheckPending = false;
       return;
     }
@@ -1295,26 +1331,26 @@ async function checkTrackInPlaylists(youtube_track_id) {
       }
       
       try {
-        const response = await fetch(`${SERVER_URL}/api/track/verify/${trackId}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${authInfo.token}`,
-            ...(authInfo.sessionId && { 'X-Session-ID': authInfo.sessionId })
-          }
-        });
+        // 1. 먼저 플레이리스트 ID로 확인
+        let approved = false;
         
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (!data.inPlaylist) {
-            // 승인된 플레이리스트에 없는 트랙
-            showTrackNotInPlaylistNotification();
-          } else {
-            log('트랙이 승인된 플레이리스트에 포함됨');
-          }
+        if (playlistId) {
+          approved = await checkPlaylistId(playlistId, authInfo);
+        }
+        
+        // 2. 플레이리스트 확인 실패 시 트랙 ID로 확인
+        if (!approved && trackId) {
+          approved = await checkTrackId(trackId, authInfo);
+        }
+        
+        // 3. 결과 처리
+        if (!approved) {
+          showTrackNotInPlaylistNotification();
+        } else {
+          log('트랙이 승인된 플레이리스트에 포함됨');
         }
       } catch (err) {
-        console.error('[ODO] 트랙 확인 오류:', err);
+        console.error('[ODO] 트랙 확인 프로세스 오류:', err);
       } finally {
         serverTrackCheckPending = false;
       }
@@ -1409,18 +1445,6 @@ function showNotification(title, message, actionText, actionCallback, showCancel
     font-family: 'Roboto', Arial, sans-serif;
   `;
   
-  // 컨텐츠 생성
-  notifContainer.innerHTML = `
-    <div style="margin-bottom: 16px;">
-      <h3 style="margin: 0 0 8px 0; font-size: 16px;">${title}</h3>
-      <p style="margin: 0; font-size: 14px; color: #5f6368;">${message}</p>
-    </div>
-    <div style="display: flex; justify-content: ${showCancel ? 'space-between' : 'flex-end'}">
-      ${showCancel ? '<button id="odo-notif-cancel" style="background: none; border: none; padding: 8px 12px; cursor: pointer; font-size: 14px; color: #5f6368;">취소</button>' : ''}
-      <button id="odo-notif-action" style="background: #4285f4; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-size: 14px;">${actionText}</button>
-    </div>
-  `;
-  
   // 문서에 추가
   document.body.appendChild(notifContainer);
   
@@ -1443,79 +1467,15 @@ function showNotification(title, message, actionText, actionCallback, showCancel
     }
   }, 10000);
 }
-
-// 로그인 화면으로 이동
-function handleLogin() {
-  chrome.runtime.sendMessage({ action: 'clearSession' });
-  window.location.href = `${SERVER_URL}/index.html`;
-}
-
-// 탭 닫기
-function handleCloseTab() {
-  chrome.runtime.sendMessage({ action: 'closeTab' });
-}
-
-// 메시지 리스너
-chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-  switch (message.action) {
-    case 'getTrackHistory':
-      // 오늘과 이번 주 통계 계산
-      const today = new Date().toISOString().slice(0, 10);
-      const todayRecs = trackHistory.filter(r => r.startTime.slice(0, 10) === today);
-      const todayMinutes = todayRecs.reduce((sum, r) => sum + Math.floor((r.actualDuration || r.duration) / 60), 0);
-      
-      sendResponse({
-        trackHistory,
-        todayStats: { 
-          minutes: todayMinutes, 
-          tracks: todayRecs.length 
-        },
-        isPlaying,
-        currentTrack,
-        playbackStartTime
-      });
-      return true;
-      
-    case 'setDebugMode':
-      debugMode = message.enabled;
-      chrome.storage.local.set({ debugMode });
-      log('디버그 모드 설정됨:', debugMode);
-      return true;
-      
-    case 'checkConnection':
-      // 연결 상태 확인 명령
-      testServerConnection();
-      sendResponse({ status: 'checking' });
-      return true;
-      
-    case 'forceCheckState':
-      // 강제 상태 확인 명령
-      logDOMElements();
-      checkCurrentState();
-      sendResponse({ status: 'checking' });
-      return true;
-      
-    case 'logDOMState':
-      // DOM 요소 상태 로깅 명령
-      logDOMElements();
-      sendResponse({ status: 'logging' });
-      return true;
-      
-    case 'resetState':
-      // 상태 리셋 명령
-      resetAllState();
-      sendResponse({ status: 'reset' });
-      return true;
-      
-    case 'clearHistory':
-      // 히스토리 초기화 명령 추가
-      trackHistory = [];
-      chrome.storage.local.set({ history: [] });
-      log('트랙 히스토리가 초기화되었습니다');
-      sendResponse({ status: 'cleared' });
-      return true;
-  }
-});
-
-// 초기화 실행
-initialize();
+  
+  // 컨텐츠 생성
+  notifContainer.innerHTML = `
+    <div style="margin-bottom: 16px;">
+      <h3 style="margin: 0 0 8px 0; font-size: 16px;">${title}</h3>
+      <p style="margin: 0; font-size: 14px; color: #5f6368;">${message}</p>
+    </div>
+    <div style="display: flex; justify-content: ${showCancel ? 'space-between' : 'flex-end'}">
+      ${showCancel ? '<button id="odo-notif-cancel" style="background: none; border: none; padding: 8px 12px; cursor: pointer; font-size: 14px; color: #5f6368;">취소</button>' : ''}
+      <button id="odo-notif-action" style="background: #4285f4; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-size: 14px;">${actionText}</button>
+    </div>
+  `;
